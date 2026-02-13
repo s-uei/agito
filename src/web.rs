@@ -183,16 +183,9 @@ impl WebServer {
                 if parts.len() >= 4 {
                     let file_type = parts[1];
                     let name = parts[3..].join(" ");
-                    let file_path = if path.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{}/{}", path, name)
-                    };
                     Some(FileInfo {
                         name,
                         file_type: file_type.to_string(),
-                        path: file_path,
-                        size: 0,
                     })
                 } else {
                     None
@@ -242,8 +235,6 @@ struct CommitInfo {
 struct FileInfo {
     name: String,
     file_type: String,
-    path: String,
-    size: i64,
 }
 
 async fn handle_index(State(server): State<Arc<WebServer>>) -> Response {
