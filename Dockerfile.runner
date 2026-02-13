@@ -1,0 +1,16 @@
+# CI/CD Runner Dockerfile
+FROM docker:dind
+
+# Install necessary tools
+RUN apk add --no-cache git bash
+
+# Create working directory
+RUN mkdir -p /var/lib/agito/runner
+
+WORKDIR /var/lib/agito/runner
+
+# Copy runner script
+COPY scripts/runner.sh /usr/local/bin/agito-runner
+RUN chmod +x /usr/local/bin/agito-runner
+
+CMD ["agito-runner"]
