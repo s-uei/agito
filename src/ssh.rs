@@ -144,7 +144,16 @@ impl russh::server::Handler for SessionHandler {
                 continue;
             }
 
-            if let Ok(auth_key) = russh_keys::parse_public_key_base64(line) {
+            // Parse OpenSSH format: "ssh-ed25519 AAAAC3N... comment"
+            // We need the base64 part (second field)
+            let mut split = line.split_whitespace();
+            let key_str = match (split.next(), split.next()) {
+                (Some(_key_type), Some(key)) => key,
+                (Some(key), None) => key,
+                _ => continue,
+            };
+
+            if let Ok(auth_key) = russh_keys::parse_public_key_base64(key_str) {
                 if &auth_key == public_key {
                     tracing::info!("User {} authenticated successfully", user);
                     return Ok(Auth::Accept);
