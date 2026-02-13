@@ -25,9 +25,18 @@ func CreateRemoteRepo(server, user, repoName string) error {
 		repoName = repoName + ".git"
 	}
 
+	// Parse server and port
+	host := server
+	port := "22"
+	if strings.Contains(server, ":") {
+		parts := strings.Split(server, ":")
+		host = parts[0]
+		port = parts[1]
+	}
+
 	// SSH command to create repository on server
 	sshCmd := fmt.Sprintf("agito-create-repo %s", repoName)
-	cmd := exec.Command("ssh", fmt.Sprintf("%s@%s", user, server), sshCmd)
+	cmd := exec.Command("ssh", "-p", port, fmt.Sprintf("%s@%s", user, host), sshCmd)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
