@@ -231,9 +231,12 @@ func (s *Server) handleGitCommand(channel gossh.Channel, command string) {
 	}
 	
 	fullPath := filepath.Join(s.reposDir, repoPath)
+	fullPath = filepath.Clean(fullPath)
 
-	// Ensure the path is within reposDir
-	if !strings.HasPrefix(fullPath, s.reposDir) {
+	// Ensure the path is within reposDir using filepath.Rel for security
+	cleanReposDir := filepath.Clean(s.reposDir)
+	relPath, err := filepath.Rel(cleanReposDir, fullPath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
 		fmt.Fprintf(channel, "Invalid repository path\n")
 		channel.SendRequest("exit-status", false, []byte{0, 0, 0, 1})
 		return
