@@ -292,7 +292,7 @@ impl SessionHandler {
 
         // Create a channel for forwarding SSH data to git stdin
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-        
+
         // Register this channel's stdin sender
         {
             let mut git_processes = self.git_processes.lock().await;
@@ -350,7 +350,6 @@ impl SessionHandler {
 
         // Spawn a task to wait for the process and send exit status
         let session_handle_wait = session_handle.clone();
-        let git_processes = self.git_processes.clone();
         tokio::spawn(async move {
             match child.wait().await {
                 Ok(status) => {
@@ -362,11 +361,7 @@ impl SessionHandler {
                     let _ = session_handle_wait.exit_status_request(channel, 1).await;
                 }
             }
-            
-            // Clean up the channel mapping
-            let mut processes = git_processes.lock().await;
-            processes.remove(&channel);
-            
+
             // Close the channel
             let _ = session_handle_wait.eof(channel).await;
             let _ = session_handle_wait.close(channel).await;
