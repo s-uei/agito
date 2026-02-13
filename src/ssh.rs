@@ -3,12 +3,14 @@ use async_trait::async_trait;
 use russh::server::{Auth, Msg, Session};
 use russh::{Channel, ChannelId};
 use russh_keys::key;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 pub struct Server {
     port: String,
@@ -64,6 +66,7 @@ impl Server {
                 let handler = SessionHandler {
                     repos_dir: (*repos_dir).clone(),
                     authorized_keys_path: (*authorized_keys_path).clone(),
+                    git_processes: Arc::new(Mutex::new(HashMap::new())),
                 };
                 let session = russh::server::run_stream(config, stream, handler).await;
                 if let Err(e) = session {
@@ -106,9 +109,14 @@ impl Server {
     }
 }
 
+// Channel for sending data to git process stdin
+type GitStdinSender = tokio::sync::mpsc::UnboundedSender<Vec<u8>>;
+
 struct SessionHandler {
     repos_dir: PathBuf,
     authorized_keys_path: PathBuf,
+    // Map of channel ID to stdin sender for active git processes
+    git_processes: Arc<Mutex<HashMap<ChannelId, GitStdinSender>>>,
 }
 
 #[async_trait]
@@ -155,6 +163,43 @@ impl russh::server::Handler for SessionHandler {
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
         Ok(true)
+    }
+
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Forward incoming data to the git process stdin if it exists
+        let git_processes = self.git_processes.lock().await;
+        if let Some(sender) = git_processes.get(&channel) {
+            // Ignore send errors (process may have already exited)
+            let _ = sender.send(data.to_vec());
+        }
+        Ok(())
+    }
+
+    async fn channel_eof(
+        &mut self,
+        channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Client closed their side, drop the sender to signal EOF to git process
+        let mut git_processes = self.git_processes.lock().await;
+        git_processes.remove(&channel);
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Clean up any remaining process state
+        let mut git_processes = self.git_processes.lock().await;
+        git_processes.remove(&channel);
+        Ok(())
     }
 
     async fn exec_request(
@@ -232,43 +277,91 @@ impl SessionHandler {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let _stdin = child.stdin.take().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
         let mut stdout = child.stdout.take().unwrap();
         let mut stderr = child.stderr.take().unwrap();
 
-        // NOTE: This is a simplified implementation. In a production system,
-        // stdin should be bidirectionally connected to the SSH channel to support
-        // git push operations. The original Go implementation had a similar limitation.
-
-        // Forward stdout from git process to SSH channel
-        let mut buf = vec![0u8; 8192];
-        loop {
-            match stdout.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    session.data(channel, buf[..n].to_vec().into());
-                }
-                Err(_) => break,
-            }
+        // Create a channel for forwarding SSH data to git stdin
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        
+        // Register this channel's stdin sender
+        {
+            let mut git_processes = self.git_processes.lock().await;
+            git_processes.insert(channel, tx);
         }
 
-        // Forward stderr
-        let mut buf = vec![0u8; 8192];
-        loop {
-            match stderr.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    session.data(channel, buf[..n].to_vec().into());
-                }
-                Err(_) => break,
-            }
-        }
+        // Get a session handle for sending data back to the client
+        let session_handle = session.handle();
 
-        let status = child.wait().await?;
-        let exit_code = status.code().unwrap_or(1);
-        session.exit_status_request(channel, exit_code as u32);
-        session.eof(channel);
-        session.close(channel);
+        // Spawn a task to forward data from SSH channel to git stdin
+        tokio::spawn(async move {
+            while let Some(data) = rx.recv().await {
+                if stdin.write_all(&data).await.is_err() {
+                    break;
+                }
+            }
+            // When the channel closes, close stdin to signal EOF to git
+            let _ = stdin.shutdown().await;
+        });
+
+        // Spawn a task to forward stdout from git to SSH channel
+        let session_handle_stdout = session_handle.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 8192];
+            loop {
+                match stdout.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if session_handle_stdout.data(channel, buf[..n].to_vec().into()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Spawn a task to forward stderr from git to SSH channel
+        let session_handle_stderr = session_handle.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 8192];
+            loop {
+                match stderr.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        // Send stderr as extended data (code 1 = stderr)
+                        if session_handle_stderr.extended_data(channel, 1, buf[..n].to_vec().into()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Spawn a task to wait for the process and send exit status
+        let session_handle_wait = session_handle.clone();
+        let git_processes = self.git_processes.clone();
+        tokio::spawn(async move {
+            match child.wait().await {
+                Ok(status) => {
+                    let exit_code = status.code().unwrap_or(1);
+                    let _ = session_handle_wait.exit_status_request(channel, exit_code as u32).await;
+                }
+                Err(e) => {
+                    tracing::error!("Error waiting for git process: {}", e);
+                    let _ = session_handle_wait.exit_status_request(channel, 1).await;
+                }
+            }
+            
+            // Clean up the channel mapping
+            let mut processes = git_processes.lock().await;
+            processes.remove(&channel);
+            
+            // Close the channel
+            let _ = session_handle_wait.eof(channel).await;
+            let _ = session_handle_wait.close(channel).await;
+        });
 
         Ok(())
     }
