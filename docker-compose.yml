@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  agito-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agito-server
+    ports:
+      - "3000:3000"  # Web interface
+      - "2222:2222"  # SSH for git operations
+    volumes:
+      - agito-repos:/var/lib/agito/repos
+      - agito-ssh:/var/lib/agito/ssh
+      - ./config:/etc/agito:ro
+    environment:
+      - AGITO_REPOS_DIR=/var/lib/agito/repos
+      - AGITO_HTTP_PORT=3000
+      - AGITO_SSH_PORT=2222
+    restart: unless-stopped
+    networks:
+      - agito-network
+
+  # Optional: Add a simple CI/CD runner
+  agito-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    container_name: agito-runner
+    volumes:
+      - agito-repos:/var/lib/agito/repos:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - AGITO_SERVER=agito-server:2222
+    restart: unless-stopped
+    networks:
+      - agito-network
+    depends_on:
+      - agito-server
+
+volumes:
+  agito-repos:
+    driver: local
+  agito-ssh:
+    driver: local
+
+networks:
+  agito-network:
+    driver: bridge

@@ -1,0 +1,45 @@
+# Binaries
+agito
+agito-server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data
+/var/
+/tmp/
+
+# SSH keys
+*.pem
+*_rsa
+*_rsa.pub
+id_*
+host_key*
+
+# Test repositories
+test_repos/
