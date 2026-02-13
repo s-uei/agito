@@ -236,8 +236,9 @@ impl SessionHandler {
         let mut stdout = child.stdout.take().unwrap();
         let mut stderr = child.stderr.take().unwrap();
 
-        // In a real implementation, we'd handle stdin from the SSH channel
-        // For now, simplified implementation
+        // NOTE: This is a simplified implementation. In a production system,
+        // stdin should be bidirectionally connected to the SSH channel to support
+        // git push operations. The original Go implementation had a similar limitation.
 
         // Forward stdout from git process to SSH channel
         let mut buf = vec![0u8; 8192];
