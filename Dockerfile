@@ -1,21 +1,20 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+FROM rust:1.75-alpine AS builder
 
 # Install dependencies
-RUN apk add --no-cache git openssh-client
+RUN apk add --no-cache git openssh-client musl-dev
 
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod go.sum ./
-RUN go mod download
+# Copy Cargo files
+COPY Cargo.toml Cargo.lock ./
 
 # Copy source code
-COPY . .
+COPY src ./src
 
 # Build the applications
-RUN CGO_ENABLED=0 GOOS=linux go build -o /agito ./cmd/agito
-RUN CGO_ENABLED=0 GOOS=linux go build -o /agito-server ./cmd/agito-server
+RUN cargo build --release --bin agito
+RUN cargo build --release --bin agito-server
 
 # Runtime stage
 FROM alpine:latest
@@ -27,8 +26,8 @@ RUN apk add --no-cache git openssh-server openssh-keygen
 RUN mkdir -p /var/lib/agito/repos /var/lib/agito/ssh
 
 # Copy binaries from builder
-COPY --from=builder /agito /usr/local/bin/agito
-COPY --from=builder /agito-server /usr/local/bin/agito-server
+COPY --from=builder /app/target/release/agito /usr/local/bin/agito
+COPY --from=builder /app/target/release/agito-server /usr/local/bin/agito-server
 
 # Copy web assets
 COPY web /app/web

@@ -43,3 +43,8 @@ host_key*
 
 # Test repositories
 test_repos/
+
+
+# Added by cargo
+
+/target

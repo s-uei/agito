@@ -31,7 +31,7 @@ docker-compose up -d
 ### Manual Installation
 
 #### Prerequisites
-- Go 1.20 or later
+- Rust 1.75 or later
 - Git
 - OpenSSH
 
@@ -43,12 +43,11 @@ git clone https://github.com/s-uei/agito.git
 cd agito
 
 # Build the binaries
-go build -o agito ./cmd/agito
-go build -o agito-server ./cmd/agito-server
+cargo build --release
 
 # Install the binaries
-sudo mv agito /usr/local/bin/
-sudo mv agito-server /usr/local/bin/
+sudo cp target/release/agito /usr/local/bin/
+sudo cp target/release/agito-server /usr/local/bin/
 ```
 
 #### Start the server
@@ -267,13 +266,13 @@ agito/
 
 ```bash
 # Build CLI
-go build -o agito ./cmd/agito
+cargo build --release --bin agito
 
 # Build server
-go build -o agito-server ./cmd/agito-server
+cargo build --release --bin agito-server
 
 # Run tests
-go test ./...
+cargo test
 ```
 
 ## Contributing
@@ -287,7 +286,8 @@ MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 Built with:
-- Go programming language
-- golang.org/x/crypto/ssh for SSH server
-- Standard library for HTTP server
+- Rust programming language
+- russh for SSH server
+- axum for HTTP server
+- tokio for async runtime
 - Git for version control

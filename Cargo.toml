@@ -1,0 +1,27 @@
+[package]
+name = "agito"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "agito"
+path = "src/bin/agito.rs"
+
+[[bin]]
+name = "agito-server"
+path = "src/bin/agito-server.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs"] }
+russh = "0.44"
+russh-keys = "0.44"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1.0"
+async-trait = "0.1"
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = "0.3"
